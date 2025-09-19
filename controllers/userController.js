@@ -131,7 +131,7 @@ export async function loginUser(req, res){
 //refress token route 
 export async function refreshToken(req,res){
     try{
-        const refreshToken = req.cookies.refreshToken || request?.header?.authorization?.split(" ")[1]; ///[bearer token]
+        const refreshToken = req.cookies.refreshToken || req?.header?.authorization?.split(" ")[1]; ///[bearer token]
         if(!refreshToken){
             return res.status(401).json({
                 message: "Refresh token is required",

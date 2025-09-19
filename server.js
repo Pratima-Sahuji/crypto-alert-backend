@@ -10,6 +10,7 @@ import alertRouter from "./routes/alertsRoutes.js";
 import { Server } from "socket.io";
 import http from "http";
 import { startAlertScheduler } from "./utils/alertWorker.js"; 
+import { getCoinMap } from "./utils/coinMapService.js";
 
 dotenv.config();
 
@@ -42,6 +43,10 @@ app.use("/api/alerts", alertRouter);
 connectDB().then(() => {
   server.listen(PORT, () => {
     console.log(`✅ Server running on port ${PORT}`);
+    // const map =  getCoinMap();
+    // console.log(map["BTC"]); // should print "bitcoin"
+    // console.log(map); // should print "ethereum"
+
 
     // Start alert scheduler with WebSocket
     startAlertScheduler(io);

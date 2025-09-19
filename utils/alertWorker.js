@@ -1,58 +1,139 @@
+
+
+
+// import cron from "node-cron";
+// import Alert from "../models/alertModel.js";
+// import { getLivePrices } from "./getLivePrice.js"; // adjust path if needed
+// import { getCoinMap } from "./coinMapService.js";
+
+// export const startAlertScheduler = (io) => {
+//   cron.schedule("*/30 * * * * *", async () => {
+//     try {
+//       console.log("⏳ Running alert scheduler...");
+
+//       // Get all active and non-triggered alerts
+//       // const alerts = await Alert.find({ active: true, triggered: false });
+//        const alerts = await Alert.find();
+//       if (!alerts.length) return console.log("No alerts to process.");
+
+
+//       const coinMap = await getCoinMap();
+
+//       // Group alerts by currency
+//       const grouped = {};
+//       alerts.forEach((a) => {
+//         if (!grouped[a.preferredCurrency]) grouped[a.preferredCurrency] = [];
+//         grouped[a.preferredCurrency].push(a);
+//       });
+
+//       for (const [currency, alertsInCurrency] of Object.entries(grouped)) {
+//         // Map coinIds to symbols dynamically
+//         const symbols = alertsInCurrency
+//           .map(a => {
+//             const entry = Object.entries(coinMap).find(([sym, id]) => id === a.coinId);
+//             return entry ? entry[0] : null;
+//           })
+//           .filter(Boolean);
+
+//         if (!symbols.length) continue;
+
+//         const prices = await getLivePrices(symbols, currency);
+
+//         for (const alert of alertsInCurrency) {
+//           const entry = Object.entries(coinMap).find(([sym, id]) => id === alert.coinId);
+//           const symbol = entry ? entry[0] : null;
+//           // console.log("Mapping alert coinId to symbol:", alert.coinId, "=>", symbol);
+
+//           if (!symbol) continue;
+
+//           const currentPrice = prices[symbol];
+//           if (!currentPrice) continue;
+
+//           let triggered = false;
+//           if (alert.condition === "above" && currentPrice > alert.targetPrice) triggered = true;
+//           else if (alert.condition === "below" && currentPrice < alert.targetPrice) triggered = true;
+
+//           if (triggered) {
+//             console.log(`🚨 Alert for ${symbol}: ${currentPrice} ${currency}`);
+//             console.log(`[WS] Sending alert to user ${alert.user}`);
+//             io.to(alert.user.toString()).emit("alertTriggered", {
+//               coin: symbol,
+//               price: currentPrice,
+//               target: alert.targetPrice,
+//               condition: alert.condition,
+//               currency,
+//             });
+//             alert.triggered = true;
+//             await alert.save();
+//           }
+//           else {
+//             console.log(`No alert for `);
+//           }
+//         }
+//       }
+//     } catch (err) {
+//       console.error("❌ Error in alert scheduler:", err.message);
+//     }
+//   });
+
+//   console.log("✅ Alert scheduler running every 30s...");
+// };
+
+
+
 import cron from "node-cron";
 import Alert from "../models/alertModel.js";
-import { getLivePrices  } from "./getLivePrice.js"; // adjust path if needed
+import { getLivePrices } from "./getLivePrice.js"; // adjust path if needed
+import { getCoinMap } from "./coinMapService.js";
 
-// STEP 1: Central scheduler
 export const startAlertScheduler = (io) => {
-  // Runs every 30 seconds
   cron.schedule("*/30 * * * * *", async () => {
     try {
       console.log("⏳ Running alert scheduler...");
 
-      // Get all alerts
+      // Get all active alerts
       const alerts = await Alert.find();
-      if (!alerts.length) return;
+      if (!alerts.length) return console.log("No alerts to process.");
+
+      const coinMap = await getCoinMap();
 
       // Group alerts by currency
       const grouped = {};
       alerts.forEach((a) => {
-        if (!grouped[a.preferredCurrency]) {
-          grouped[a.preferredCurrency] = [];
-        }
+        if (!grouped[a.preferredCurrency]) grouped[a.preferredCurrency] = [];
         grouped[a.preferredCurrency].push(a);
       });
 
-      // For each currency group → fetch prices (cached or fresh)
       for (const [currency, alertsInCurrency] of Object.entries(grouped)) {
-        const symbols = [...new Set(alertsInCurrency.map((a) => a.symbol))];
-
-        // ✅ Use cached live prices here
+        // Use alert.coinId as symbol and map to CoinGecko ID
+        const symbols = alertsInCurrency.map(a => a.coinId.toUpperCase());
         const prices = await getLivePrices(symbols, currency);
 
-        // Check alerts for this currency
         for (const alert of alertsInCurrency) {
-          const currentPrice = prices[alert.symbol];
+          const symbol = alert.coinId.toUpperCase();
+          const currentPrice = prices[symbol];
           if (!currentPrice) continue;
 
+          // Check if alert should trigger
           let triggered = false;
-          if (alert.condition === "above" && currentPrice > alert.targetPrice) {
-            triggered = true;
-          } else if (alert.condition === "below" && currentPrice < alert.targetPrice) {
-            triggered = true;
-          }
+          if (alert.condition === "above" && currentPrice > alert.targetPrice) triggered = true;
+          else if (alert.condition === "below" && currentPrice < alert.targetPrice) triggered = true;
 
-          if (triggered) {
-            console.log(`🚨 Alert for ${alert.symbol}: ${currentPrice} ${currency}`);
-
-            // Emit WebSocket event
-            io.to(alert.userId.toString()).emit("alertTriggered", {
-              coin: alert.symbol,
+          if (triggered && !alert.triggered) {
+            console.log(`🚨 Alert for ${symbol} at ${alert.targetPrice}: and current ${currentPrice} ${currency} for ${alert.user}`);
+            io.to(alert.user.toString()).emit("alertTriggered", {
+              coin: symbol,
               price: currentPrice,
               target: alert.targetPrice,
               condition: alert.condition,
               currency,
             });
+            alert.triggered = true;
+            await alert.save();
           }
+          //  else {
+          //   console.log(`No alert for ${symbol}: ${currentPrice} ${currency}`);
+          // }
         }
       }
     } catch (err) {
@@ -62,66 +143,3 @@ export const startAlertScheduler = (io) => {
 
   console.log("✅ Alert scheduler running every 30s...");
 };
-
-
-
-
-
-
-
-// import Alert from "../models/alertModel.js";
-// import axios from "axios";
-
-// // Track last checked time for each alert
-// const lastChecked = new Map();
-
-// export const scheduleAlertCheck = async (alert) => {
-//   try {
-//     const now = Date.now();
-//     const lastRun = lastChecked.get(alert._id) || 0;
-//     const frequency = alert.frequency || 15; // in minutes
-//     const diffMinutes = (now - lastRun) / 60000;
-
-//     // Only check if enough time has passed
-//     if (diffMinutes >= frequency) {
-//       // Fetch live price from CoinGecko
-//       const url = `https://api.coingecko.com/api/v3/simple/price?ids=${alert.coinId}&vs_currencies=${alert.preferredCurrency}`;
-//       const { data } = await axios.get(url);
-
-//       if (!data[alert.coinId]) {
-//         console.warn(`Coin data not found for ${alert.coinId}`);
-//       } else {
-//         const currentPrice = data[alert.coinId][alert.preferredCurrency];
-//         let alertTriggered = false;
-
-//         if (alert.condition === "above" && currentPrice > alert.targetPrice) {
-//           alertTriggered = true;
-//         } else if (alert.condition === "below" && currentPrice < alert.targetPrice) {
-//           alertTriggered = true;
-//         }
-
-//         if (alertTriggered) {
-//           console.log(
-//             `Alert triggered for ${alert.coinId}: Current price ${currentPrice} ${alert.preferredCurrency} is ${alert.condition} ${alert.targetPrice}`
-//           );
-//         }
-
-//         lastChecked.set(alert._id, now);
-//       }
-//     }
-//   } catch (error) {
-//     console.error("Error checking alert:", error.message);
-//   } finally {
-//     // Schedule the next check according to the alert's frequency
-//     const nextFrequency = (alert.frequency || 15) * 60 * 1000; // convert min to ms
-//     setTimeout(() => scheduleAlertCheck(alert), nextFrequency);
-//   }
-// };
-
-// // Start checking all alerts
-//  const startAlerts = async () => {
-//   const alerts = await Alert.find();
-//   alerts.forEach((alert) => scheduleAlertCheck(alert));
-// };
-
-// export default startAlerts;

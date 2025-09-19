@@ -22,6 +22,7 @@ export async function getLivePrices(symbols, currency = "usd") {
 
   // 2. Map symbols (BTC → bitcoin, ETH → ethereum)
   const coinIds = symbols
+  .filter(s => s) // remove empty strings
     .map((s) => coinMap[s.toUpperCase()])
     .filter(Boolean); // remove undefined
 
